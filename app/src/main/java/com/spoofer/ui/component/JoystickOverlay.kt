@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -63,13 +64,16 @@ fun JoystickOverlay(
     val thumbHighlightColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = if (isActive) 0.2f else 0.05f)
 
     Box(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().navigationBarsPadding(),
         contentAlignment = Alignment.BottomCenter,
     ) {
         Surface(
             modifier =
                 Modifier
-                    .offset(y = (-80).dp)
+                    // Clears the Start/Stop and Pause FABs, which sit ~80-144dp above
+                    // the bottom edge (see MapScreen.kt) — the joystick used to overlap
+                    // and render behind them since it's composed earlier in the Box.
+                    .offset(y = (-190).dp)
                     .size(totalSizeDp),
             shape = CircleShape,
             color = surfaceColor,
