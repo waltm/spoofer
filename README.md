@@ -57,7 +57,23 @@ An on-screen, floating joystick overlay allows the user to manually "walk", "dri
 The hallmark feature of Spoofer. Users can select an Origin and a Destination. The app queries the OpenRouteService (OSRM) API to generate a realistic road-geometry polyline.
 * **Dynamic Interpolation:** The `SpeedSimulationUseCase` engine iterates over the polyline segments. It calculates the exact distance between nodes and mathematically interpolates your position along the curve of the road at a highly specific update rate (5Hz). It dynamically updates the device's `bearing` (compass heading) and `speed` metrics so that apps like Google Maps behave identically to being in a real moving vehicle.
 
-### 4. Advanced Geocoding Infrastructure
+### 4. PC Receiver Mode
+A fourth location source, toggled on under **Settings → Location Source → PC Receiver Mode**. When enabled, it replaces the three on-device modes above with a single socket listener: a PC-side companion sends newline-delimited JSON location updates, and the app feeds them straight into the same mock-location pipeline used by Static mode (including jitter).
+* **Transport:** `adb forward tcp:8765 tcp:8765` tunnels a PC-local port straight to the app's listener, which binds to `127.0.0.1` only — it is never exposed on the phone's own network interface.
+* **Message format:** `{"Action":"SendPosition","data":{"Lat":"<decimal string>","Lng":"<decimal string>","Type":"<string>"}}`, one JSON object per line.
+* **Status:** the bottom sheet shows "Not listening" / "Waiting for PC…" / "PC connected" depending on whether spoofing is active and a client is connected.
+* There is currently no PC-side companion app — the port and message format above are meant for a throwaway script or a future dedicated client to send to.
+
+### 5. Multi-Waypoint Routing & Return Modes
+Directions mode supports intermediate stops (Add Stop chip) between origin and destination, plus a **Return Mode** choice for the trip back to the start: **None** (end at the destination), **Loop** (a new direct leg from destination back to origin), or **Backtrack** (retrace the same stops in reverse).
+
+### 6. GPX Import/Export
+Routes can be exported to a `.gpx` file (via the system file picker) and re-imported later, preserving elevation data per point when present. An imported GPX route's own elevation is used automatically; it does not require the Elevation Simulation setting.
+
+### 7. Road Speed-Limit Clamping & Elevation Simulation
+Directions mode reads OSRM's own per-segment speed annotation and caps the simulated speed to it, so movement never exceeds what's plausible for the current road. **Elevation Simulation** (off by default, under Settings) adds altitude that changes gradually along a route, sourced from an imported GPX file when available or looked up from Open-Elevation otherwise.
+
+### 8. Advanced Geocoding Infrastructure
 Instead of relying on the restrictive and often rate-limited Android `Geocoder`, Spoofer utilizes the **Photon API** (backed by OpenStreetMap). This allows for rich Point of Interest (POI) searches. We apply a location-bias algorithm, meaning if your map is currently looking at New York, searching for "Starbucks" will prioritize results in New York rather than returning a Starbucks in London.
 
 ---
@@ -116,14 +132,41 @@ Since this app interfaces with system-level Developer Options, installation requ
    git clone https://github.com/yourusername/spoofer.git
    cd spoofer
    ```
-2. **Open in Android Studio:**
+2. **Get a Google Maps API key (required for the map background):**
+   The map tiles are rendered by the Google Maps SDK for Android, which requires
+   an API key that is **not** included in this repository (it's a secret tied to
+   your own Google account and billing).
+   1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project.
+   2. Enable **"Maps SDK for Android"** for that project.
+   3. Create an API key, and restrict it to this app's package name
+      (`com.spoofer`) and your signing certificate's SHA-1 fingerprint (your
+      debug keystore's fingerprint is enough for local development — get it
+      with `./gradlew signingReport`).
+   4. Create (or edit) `local.properties` in the project root — it's already
+      gitignored, so your key never gets committed — and add:
+      ```properties
+      MAPS_API_KEY=your_key_here
+      ```
+   Without this step the app still builds and runs, but the map background
+   will be blank (the Maps SDK silently refuses to render tiles with a missing key).
+
+   > **Don't use Google's ["demo" API key](https://developers.google.com/maps/demo-key).**
+   > It's a shared key on a Google-owned project, scoped to web APIs only (Maps
+   > JavaScript API / web services) for prototyping — it has no Android SDK
+   > support and can't be restricted to your app's package name and SHA-1, so
+   > it fails with an "Authorization failure" in logcat. You need a real key
+   > created under your own Google Cloud project (billing enabled, but normal
+   > dev/testing usage stays within the recurring free monthly credit),
+   > restricted to `com.spoofer` + your signing certificate's SHA-1 as
+   > described above.
+3. **Open in Android Studio:**
    Allow Gradle to sync the dependencies.
-3. **Compile the APK:**
+4. **Compile the APK:**
    Click the **Run** button, or build via terminal:
    ```bash
    ./gradlew assembleDebug
    ```
-4. **Install to Device:**
+5. **Install to Device:**
    Ensure your device is connected via ADB and install the generated APK.
 
 ### Enabling Mock Locations (Crucial Step)
@@ -136,12 +179,25 @@ The app will not work unless you grant it Mock Location authority at the OS leve
 6. Tap **Select mock location app** and choose **Spoofer** from the list.
 7. *(Optional but Highly Recommended)*: Go to Settings -> Location -> Location Services and turn **OFF "Google Location Accuracy"** (Wi-Fi/Bluetooth scanning). This severely cripples Rubber-Banding.
 
+### Using PC Receiver Mode
+1. In the app, go to **Settings → Location Source** and enable **PC Receiver Mode**. This hides the Static/Directions/Joystick tabs and replaces them with a connection-status panel.
+2. With the device connected over ADB, forward the listener port:
+   ```bash
+   adb forward tcp:8765 tcp:8765
+   ```
+3. Tap **Start spoofing** in the app — the panel should read "Waiting for PC…".
+4. Send newline-delimited JSON to `127.0.0.1:8765` on the PC:
+   ```json
+   {"Action":"SendPosition","data":{"Lat":"37.775000","Lng":"-122.419000","Type":"android"}}
+   ```
+   The app applies the same jitter as Static mode and updates the mock location on each message.
+
 ---
 
 ## 🐛 Known Bugs & Limitations
 
 - **Rubber-Banding:** As detailed above, micro-jumps back to the real hardware location still occasionally occur on devices with aggressive Wi-Fi scanning enabled.
-- **Altitude/Elevation Simulation:** Currently, altitude is hardcoded to `0.0`. Advanced games/apps that cross-reference altitude with topographical maps may flag the spoofed location as suspicious.
+- **Altitude/Elevation Simulation:** Optional and off by default (see Settings). An imported GPX file's own elevation data is used automatically when present; otherwise, enabling the "Elevation Simulation" setting looks it up from Open-Elevation, a free third-party service whose uptime isn't guaranteed. Static and Joystick modes still report altitude `0.0`.
 - **Directions Route Limitations:** If an excessively long route (e.g., cross-country) is selected, the OSRM polyline response may be too large to parse efficiently on the main thread, causing temporary UI freezes.
 
 ---
