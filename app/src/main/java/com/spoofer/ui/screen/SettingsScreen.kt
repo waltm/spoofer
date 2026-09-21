@@ -16,6 +16,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Terrain
+import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -53,6 +55,8 @@ fun SettingsScreen(
     val jitterIntensity by viewModel.jitterIntensity.collectAsState(initial = 2f)
     val transportMode by viewModel.defaultTransportMode.collectAsState(initial = "CYCLE")
     val darkTheme by viewModel.darkTheme.collectAsState(initial = true)
+    val elevationEnabled by viewModel.elevationEnabled.collectAsState(initial = false)
+    val pcReceiverModeEnabled by viewModel.pcReceiverModeEnabled.collectAsState(initial = false)
     val scope = rememberCoroutineScope()
 
     Scaffold(
@@ -159,6 +163,54 @@ fun SettingsScreen(
                         ),
                 )
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // Elevation
+            CategoryHeader("Elevation")
+            ListItem(
+                headlineContent = { Text("Elevation Simulation") },
+                supportingContent = {
+                    Text(
+                        "Adds altitude that changes gradually along a route. An imported " +
+                            "GPX file's own elevation data is used when present; otherwise " +
+                            "this looks it up from an external elevation service.",
+                    )
+                },
+                leadingContent = {
+                    Icon(Icons.Default.Terrain, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                trailingContent = {
+                    Switch(
+                        checked = elevationEnabled,
+                        onCheckedChange = { scope.launch { viewModel.setElevationEnabled(it) } },
+                    )
+                },
+                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // Location Source
+            CategoryHeader("Location Source")
+            ListItem(
+                headlineContent = { Text("PC Receiver Mode") },
+                supportingContent = {
+                    Text(
+                        "Off: spoof using the on-device Static/Directions/Joystick modes " +
+                            "(the standard Android mock-location app). On: receive position " +
+                            "updates as JSON from a PC over adb forward instead.",
+                    )
+                },
+                leadingContent = {
+                    Icon(Icons.Default.Usb, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                trailingContent = {
+                    Switch(
+                        checked = pcReceiverModeEnabled,
+                        onCheckedChange = { scope.launch { viewModel.setPcReceiverModeEnabled(it) } },
+                    )
+                },
+                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+            )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             // Movement Defaults

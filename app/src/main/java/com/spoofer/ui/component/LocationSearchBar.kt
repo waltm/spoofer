@@ -30,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.maps.model.LatLng
 import com.spoofer.data.PlaceSuggestion
+import com.spoofer.util.coordinateSuggestion
+import com.spoofer.util.parseCoordinates
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -55,18 +57,28 @@ fun LocationSearchBar(
         onQueryChange = { newQuery ->
             query = newQuery
             searchJob?.cancel()
-            if (newQuery.length >= 2) {
-                searchJob =
-                    scope.launch {
-                        delay(300)
-                        try {
-                            suggestions = onSearch(newQuery)
-                        } catch (_: Exception) {
-                            suggestions = emptyList()
+            val coordinate = parseCoordinates(newQuery)
+            when {
+                coordinate != null -> {
+                    // Typed/pasted coordinates are already a complete, precise
+                    // location — offer them directly instead of letting whatever
+                    // the geocoder happens to return for that text win on Enter.
+                    suggestions = listOf(coordinateSuggestion(coordinate))
+                }
+                newQuery.length >= 2 -> {
+                    searchJob =
+                        scope.launch {
+                            delay(300)
+                            try {
+                                suggestions = onSearch(newQuery)
+                            } catch (_: Exception) {
+                                suggestions = emptyList()
+                            }
                         }
-                    }
-            } else {
-                suggestions = emptyList()
+                }
+                else -> {
+                    suggestions = emptyList()
+                }
             }
         },
         onSearch = { q ->

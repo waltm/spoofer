@@ -36,6 +36,14 @@ class SettingsViewModel
             prefs.darkTheme
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
+        val elevationEnabled: StateFlow<Boolean> =
+            prefs.elevationEnabled
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+        val pcReceiverModeEnabled: StateFlow<Boolean> =
+            prefs.pcReceiverModeEnabled
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
         fun setGpsUpdateInterval(ms: Long) {
             viewModelScope.launch { prefs.setGpsUpdateInterval(ms) }
         }
@@ -54,5 +62,13 @@ class SettingsViewModel
 
         fun setDarkTheme(enabled: Boolean) {
             viewModelScope.launch { prefs.setDarkTheme(enabled) }
+        }
+
+        fun setElevationEnabled(enabled: Boolean) {
+            viewModelScope.launch { prefs.setElevationEnabled(enabled) }
+        }
+
+        fun setPcReceiverModeEnabled(enabled: Boolean) {
+            viewModelScope.launch { prefs.setPcReceiverModeEnabled(enabled) }
         }
     }

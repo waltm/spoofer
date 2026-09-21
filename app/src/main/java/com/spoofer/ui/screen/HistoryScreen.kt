@@ -130,6 +130,7 @@ fun HistoryScreen(
                                             SpoofMode.STATIC -> "Static"
                                             SpoofMode.DIRECTIONS -> "Directions"
                                             SpoofMode.JOYSTICK -> "Joystick"
+                                            SpoofMode.PC_RECEIVER -> "PC Receiver"
                                         },
                                     )
                                 },

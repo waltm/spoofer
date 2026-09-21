@@ -28,6 +28,7 @@ fun StatusChip(
     mode: SpoofMode,
     elapsedSeconds: Long,
     isActive: Boolean,
+    isPaused: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     AnimatedVisibility(
@@ -43,13 +44,14 @@ fun StatusChip(
         AssistChip(
             onClick = {},
             label = {
+                val pausedSuffix = if (isPaused) " • Paused" else ""
                 Text(
-                    "${modeLabel(mode)} • ${formatElapsed(elapsedSeconds)}",
+                    "${modeLabel(mode)} • ${formatElapsed(elapsedSeconds)}$pausedSuffix",
                     style = MaterialTheme.typography.labelMedium,
                 )
             },
             leadingIcon = {
-                PulsingDot()
+                PulsingDot(isPaused = isPaused)
             },
             colors =
                 AssistChipDefaults.assistChipColors(
@@ -65,11 +67,11 @@ fun StatusChip(
 }
 
 @Composable
-private fun PulsingDot() {
+private fun PulsingDot(isPaused: Boolean = false) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
         initialValue = 0.8f,
-        targetValue = 1.2f,
+        targetValue = if (isPaused) 0.8f else 1.2f,
         animationSpec =
             infiniteRepeatable(
                 animation = tween(800),
@@ -77,7 +79,12 @@ private fun PulsingDot() {
             ),
         label = "pulse_scale",
     )
-    val dotColor = MaterialTheme.colorScheme.primary
+    val dotColor =
+        if (isPaused) {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        } else {
+            MaterialTheme.colorScheme.primary
+        }
 
     Canvas(modifier = Modifier.size(8.dp)) {
         drawCircle(color = dotColor, radius = size.minDimension / 2 * scale)
@@ -89,6 +96,7 @@ private fun modeLabel(mode: SpoofMode): String =
         SpoofMode.STATIC -> "Static"
         SpoofMode.DIRECTIONS -> "Directions"
         SpoofMode.JOYSTICK -> "Joystick"
+        SpoofMode.PC_RECEIVER -> "PC Receiver"
     }
 
 private fun formatElapsed(seconds: Long): String {

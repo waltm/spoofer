@@ -2,7 +2,10 @@ package com.spoofer.ui.screen
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.foundation.background
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -23,13 +26,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +48,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,6 +60,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -76,6 +84,7 @@ import com.spoofer.ui.component.StatusChip
 import com.spoofer.viewmodel.FavoritesViewModel
 import com.spoofer.viewmodel.MapViewModel
 import com.spoofer.viewmodel.SpoofViewModel
+import com.spoofer.viewmodel.buildRouteWaypoints
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,6 +100,7 @@ fun MapScreen(
     val selectedMode by mapViewModel.selectedMode.collectAsState()
     val cameraPosition by mapViewModel.cameraPosition.collectAsState()
     val isSpoofing by mapViewModel.isSpoofing.collectAsState()
+    val isPaused by mapViewModel.isPaused.collectAsState()
     val currentSpoofedLocation by mapViewModel.currentSpoofedLocation.collectAsState()
     val spoofMode by mapViewModel.spoofMode.collectAsState()
     val elapsedSeconds by mapViewModel.elapsedSeconds.collectAsState()
@@ -101,6 +111,11 @@ fun MapScreen(
     val joySpeedKmh by mapViewModel.joySpeedKmh.collectAsState()
     val totalDistanceTraveled by mapViewModel.totalDistanceTraveled.collectAsState()
     val currentHeading by mapViewModel.currentHeading.collectAsState()
+    val roadSpeedLimitKmh by mapViewModel.currentRoadSpeedLimitKmh.collectAsState()
+    val waypointStops by mapViewModel.waypointStops.collectAsState()
+    val returnMode by mapViewModel.returnMode.collectAsState()
+    val pcReceiverConnected by mapViewModel.pcReceiverConnected.collectAsState()
+    val pcReceiverModeEnabled by mapViewModel.pcReceiverModeEnabled.collectAsState()
 
     val routeInfo by spoofViewModel.routeInfo.collectAsState()
     val routePreview by spoofViewModel.routePreview.collectAsState()
@@ -108,6 +123,7 @@ fun MapScreen(
     val isLoadingRoute by spoofViewModel.isLoadingRoute.collectAsState()
     val routeError by spoofViewModel.routeError.collectAsState()
     val showSetupDialog by spoofViewModel.showSetupDialog.collectAsState()
+    val importedGpxRoute by spoofViewModel.importedGpxRoute.collectAsState()
 
     val favorites by favoriteViewModel.favorites.collectAsState()
 
@@ -125,6 +141,31 @@ fun MapScreen(
     val cameraState = rememberCameraPositionState()
     val originMarkerState = rememberMarkerState()
     val targetMarkerState = rememberMarkerState()
+
+    val gpxImportLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let { spoofViewModel.importGpx(it) }
+        }
+    val gpxExportLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
+            uri?.let { spoofViewModel.exportGpx(it) }
+        }
+
+    LaunchedEffect(importedGpxRoute) {
+        importedGpxRoute?.let { route ->
+            val first = route.points.first()
+            val last = route.points.last()
+            val firstLatLng = LatLng(first.latitude, first.longitude)
+            val lastLatLng = LatLng(last.latitude, last.longitude)
+            mapViewModel.setOrigin(firstLatLng)
+            mapViewModel.setTarget(lastLatLng)
+            originMarkerState.position = firstLatLng
+            targetMarkerState.position = lastLatLng
+            originText = route.name
+            destText = "${route.points.size} GPX points"
+            cameraState.move(CameraUpdateFactory.newLatLngZoom(firstLatLng, 15f))
+        }
+    }
 
     // Bug 12 fix: remember the last known mode so StatusChip has content during its
     // exit animation (spoofMode becomes null before the animation completes).
@@ -152,17 +193,41 @@ fun MapScreen(
                     spoofViewModel.startStaticSpoof(it)
                 }
                 SpoofMode.DIRECTIONS -> {
-                    val origin = originLatLng ?: cameraPosition
-                    val dest = targetLatLng
-                    if (origin != null && dest != null) {
-                        spoofViewModel.startDirectionsSpoof(origin, dest, speedKmh / 3.6f)
+                    val gpxRoute = importedGpxRoute
+                    if (gpxRoute != null) {
+                        val points = gpxRoute.points.map { LatLng(it.latitude, it.longitude) }
+                        val elevations = gpxRoute.points.map { it.elevation }
+                        spoofViewModel.startGpxRouteSpoof(points, speedKmh / 3.6f, elevations)
+                    } else {
+                        val origin = originLatLng ?: cameraPosition
+                        val dest = targetLatLng
+                        if (origin != null && dest != null) {
+                            val waypoints =
+                                buildRouteWaypoints(
+                                    origin, waypointStops.mapNotNull { it.latLng }, dest, returnMode,
+                                )
+                            spoofViewModel.startDirectionsSpoof(waypoints, speedKmh / 3.6f)
+                        }
                     }
                 }
                 SpoofMode.JOYSTICK ->
                     originLatLng?.let { origin ->
                         spoofViewModel.startJoystick(origin, joySpeedKmh / 3.6f)
                     }
+                SpoofMode.PC_RECEIVER ->
+                    (originLatLng ?: cameraPosition)?.let { origin ->
+                        spoofViewModel.startPcReceiver(origin)
+                    }
             }
+        }
+    }
+
+    val onPauseResume: () -> Unit = {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (isPaused) {
+            spoofViewModel.resumeSpoofing()
+        } else {
+            spoofViewModel.pauseSpoofing()
         }
     }
 
@@ -197,9 +262,17 @@ fun MapScreen(
         if (!isSpoofing) cameraPosition?.let { cameraState.move(CameraUpdateFactory.newLatLngZoom(it, 16f)) }
     }
 
-    LaunchedEffect(selectedMode, originLatLng, targetLatLng) {
-        if (selectedMode == SpoofMode.DIRECTIONS && originLatLng != null && targetLatLng != null) {
-            spoofViewModel.fetchRoutePreview(originLatLng!!, targetLatLng!!)
+    LaunchedEffect(selectedMode, originLatLng, targetLatLng, waypointStops, returnMode) {
+        // An imported GPX route owns routePreview/routeInfo directly — don't let an
+        // OSRM fetch between its first/last points (triggered by the marker sync in
+        // the importedGpxRoute effect above) clobber it.
+        if (importedGpxRoute != null) return@LaunchedEffect
+        val origin = originLatLng
+        val dest = targetLatLng
+        if (selectedMode == SpoofMode.DIRECTIONS && origin != null && dest != null) {
+            val waypoints =
+                buildRouteWaypoints(origin, waypointStops.mapNotNull { it.latLng }, dest, returnMode)
+            spoofViewModel.fetchRoutePreview(waypoints)
         } else {
             spoofViewModel.clearRoutePreview()
         }
@@ -244,11 +317,13 @@ fun MapScreen(
                 onOriginTextChange = { originText = it },
                 onDestTextChange = { destText = it },
                 onOriginSelected = { latLng ->
+                    spoofViewModel.clearRoutePreview()
                     mapViewModel.setOrigin(latLng)
                     originMarkerState.position = latLng
                 },
                 onSwap = { mapViewModel.swapOriginAndDestination() },
                 onDestSelected = { latLng ->
+                    spoofViewModel.clearRoutePreview()
                     mapViewModel.setTarget(latLng)
                     targetMarkerState.position = latLng
                 },
@@ -262,6 +337,25 @@ fun MapScreen(
                 routeError = routeError,
                 joySpeedKmh = joySpeedKmh, onJoySpeedChange = { mapViewModel.setJoySpeedKmh(it) },
                 totalDistanceTraveled = totalDistanceTraveled, currentHeading = currentHeading,
+                importedGpxRoute = importedGpxRoute,
+                onImportGpxClick = { gpxImportLauncher.launch(arrayOf("*/*")) },
+                onExportGpxClick = {
+                    gpxExportLauncher.launch("spoofer_route_${System.currentTimeMillis()}.gpx")
+                },
+                onClearImportedRoute = { spoofViewModel.clearRoutePreview() },
+                roadSpeedLimitKmh = roadSpeedLimitKmh,
+                waypointStops = waypointStops,
+                onAddWaypointStop = { mapViewModel.addWaypointStop() },
+                onWaypointStopTextChange = { index, text -> mapViewModel.updateWaypointStopText(index, text) },
+                onWaypointStopSelected = { index, latLng ->
+                    spoofViewModel.clearRoutePreview()
+                    mapViewModel.setWaypointStopLocation(index, latLng)
+                },
+                onRemoveWaypointStop = { index -> mapViewModel.removeWaypointStop(index) },
+                returnMode = returnMode,
+                onReturnModeChange = { mapViewModel.setReturnMode(it) },
+                pcReceiverConnected = pcReceiverConnected,
+                pcReceiverModeEnabled = pcReceiverModeEnabled,
             )
         },
     ) { innerPadding ->
@@ -313,6 +407,18 @@ fun MapScreen(
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED),
                 )
 
+                waypointStops.forEachIndexed { index, stop ->
+                    stop.latLng?.let { latLng ->
+                        key(index, latLng) {
+                            Marker(
+                                state = rememberMarkerState(position = latLng),
+                                title = "Stop ${index + 1}",
+                                icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_ORANGE),
+                            )
+                        }
+                    }
+                }
+
                 if (routePreview.isNotEmpty()) {
                     Polyline(
                         points = routePreview,
@@ -328,6 +434,44 @@ fun MapScreen(
                         strokeColor = MaterialTheme.colorScheme.primary,
                         strokeWidth = 2f,
                     )
+                }
+            }
+
+            if (com.spoofer.BuildConfig.MAPS_API_KEY.isBlank()) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 40.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Map,
+                            contentDescription = null,
+                            modifier = Modifier.size(40.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Map background unavailable",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "No Google Maps API key is configured. Add MAPS_API_KEY to " +
+                                "local.properties — see the README for setup steps. " +
+                                "Spoofing still works without it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
 
@@ -356,6 +500,7 @@ fun MapScreen(
                         mode = mode,
                         elapsedSeconds = elapsedSeconds,
                         isActive = isSpoofing,
+                        isPaused = isPaused,
                     )
                 }
             }
@@ -396,6 +541,31 @@ fun MapScreen(
                     ),
             ) {
                 Icon(Icons.Default.MyLocation, contentDescription = "My Location", modifier = Modifier.size(24.dp))
+            }
+
+            if (isSpoofing) {
+                FloatingActionButton(
+                    onClick = onPauseResume,
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .navigationBarsPadding()
+                            .padding(start = 16.dp, bottom = 88.dp),
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    elevation =
+                        FloatingActionButtonDefaults.elevation(
+                            defaultElevation = 4.dp,
+                            pressedElevation = 8.dp,
+                        ),
+                ) {
+                    Icon(
+                        if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        contentDescription = if (isPaused) "Resume" else "Pause",
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
             }
 
             ExtendedFloatingActionButton(

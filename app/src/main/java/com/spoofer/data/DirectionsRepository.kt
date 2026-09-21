@@ -32,16 +32,24 @@ class DirectionsRepository
         suspend fun getRoute(
             origin: LatLng,
             destination: LatLng,
-        ): RouteInfo {
-            val cacheKey = "${origin.latitude},${origin.longitude}-${destination.latitude},${destination.longitude}"
+        ): RouteInfo = getRoute(listOf(origin, destination))
+
+        /**
+         * Fetches a single route through an ordered list of 2+ points — an origin, any
+         * number of intermediate stops, and a destination (which may be the origin again,
+         * for a round trip). OSRM natively supports this as one multi-waypoint request; the
+         * response's geometry/duration/distance/annotations already span every leg combined.
+         */
+        suspend fun getRoute(waypoints: List<LatLng>): RouteInfo {
+            require(waypoints.size >= 2) { "A route needs at least an origin and a destination" }
+            val cacheKey = waypoints.joinToString("-") { "${it.latitude},${it.longitude}" }
             cache[cacheKey]?.let { return it }
 
             return withContext(Dispatchers.IO) {
+                val coords = waypoints.joinToString(";") { "${it.longitude},${it.latitude}" }
                 val url =
-                    "$baseUrl/route/v1/driving/" +
-                        "${origin.longitude},${origin.latitude};" +
-                        "${destination.longitude},${destination.latitude}" +
-                        "?overview=full&geometries=polyline&alternatives=false"
+                    "$baseUrl/route/v1/driving/$coords" +
+                        "?overview=full&geometries=polyline&alternatives=false&annotations=speed"
 
                 val request = Request.Builder().url(url).build()
                 val response = okHttpClient.newCall(request).execute()
@@ -63,11 +71,28 @@ class DirectionsRepository
 
                 val polyline = decodePolyline(geometry)
 
+                // Per-segment speed (m/s) that OSRM's driving profile assigned each road
+                // edge, based on its road class — this rides along for free with the
+                // routing request and roughly tracks the road's real speed limit, without
+                // needing a separate paid API. Only trusted when its length lines up with
+                // the polyline (overview=full is required for the two to align at all).
+                val segmentSpeedsMps =
+                    route.getAsJsonArray("legs")
+                        ?.flatMap { leg ->
+                            leg.asJsonObject
+                                .getAsJsonObject("annotation")
+                                ?.getAsJsonArray("speed")
+                                ?.map { it.asDouble }
+                                ?: emptyList()
+                        }
+                        ?.takeIf { it.size == polyline.size - 1 }
+
                 val routeInfo =
                     RouteInfo(
                         polyline = polyline,
                         durationSeconds = duration,
                         distanceMeters = distance,
+                        segmentSpeedsMps = segmentSpeedsMps,
                     )
 
                 synchronized(cache) { cache[cacheKey] = routeInfo }
@@ -126,4 +151,5 @@ data class RouteInfo(
     val polyline: List<LatLng>,
     val durationSeconds: Int,
     val distanceMeters: Int,
+    val segmentSpeedsMps: List<Double>? = null,
 )

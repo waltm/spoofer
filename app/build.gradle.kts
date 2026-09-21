@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -6,6 +8,17 @@ plugins {
     id("com.google.devtools.ksp")
     id("org.jlleitschuh.gradle.ktlint")
 }
+
+// local.properties is gitignored and never read by Gradle automatically (only AGP's own
+// sdk.dir/ndk.dir lookups do that) — load it explicitly so a MAPS_API_KEY entry there is
+// picked up, falling back to an actual Gradle property (-P flag or CI env var) if unset.
+val localProperties =
+    Properties().apply {
+        val localFile = rootProject.file("local.properties")
+        if (localFile.exists()) {
+            localFile.inputStream().use { stream -> load(stream) }
+        }
+    }
 
 android {
     namespace = "com.spoofer"
@@ -20,7 +33,10 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val mapsApiKey = providers.gradleProperty("MAPS_API_KEY").orElse("").get()
+        val mapsApiKey =
+            localProperties.getProperty("MAPS_API_KEY")
+                ?: providers.gradleProperty("MAPS_API_KEY").orNull
+                ?: ""
 
         resValue("string", "maps_api_key", mapsApiKey)
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")

@@ -2,6 +2,8 @@ package com.spoofer.ui.component
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -17,8 +19,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
 import com.google.android.gms.maps.model.LatLng
 import com.spoofer.data.PlaceSuggestion
+import com.spoofer.util.coordinateSuggestion
+import com.spoofer.util.parseCoordinates
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -52,21 +57,32 @@ fun LocationInputField(
             onValueChange = { newValue ->
                 onValueChange(newValue)
                 searchJob?.cancel()
-                if (newValue.length >= 2) {
-                    searchJob =
-                        scope.launch {
-                            delay(300)
-                            try {
-                                suggestions = onSearch(newValue)
-                                expanded = suggestions.isNotEmpty()
-                            } catch (_: Exception) {
-                                suggestions = emptyList()
-                                expanded = false
+                val coordinate = parseCoordinates(newValue)
+                when {
+                    coordinate != null -> {
+                        // Typed/pasted coordinates are already a complete, precise
+                        // location — skip the geocoder and offer it directly instead
+                        // of hoping a place-name search happens to match the text.
+                        suggestions = listOf(coordinateSuggestion(coordinate))
+                        expanded = true
+                    }
+                    newValue.length >= 2 -> {
+                        searchJob =
+                            scope.launch {
+                                delay(300)
+                                try {
+                                    suggestions = onSearch(newValue)
+                                    expanded = suggestions.isNotEmpty()
+                                } catch (_: Exception) {
+                                    suggestions = emptyList()
+                                    expanded = false
+                                }
                             }
-                        }
-                } else {
-                    suggestions = emptyList()
-                    expanded = false
+                    }
+                    else -> {
+                        suggestions = emptyList()
+                        expanded = false
+                    }
                 }
             },
             placeholder = { Text(placeholder) },
@@ -74,6 +90,18 @@ fun LocationInputField(
             leadingIcon = leadingIcon,
             trailingIcon = trailingIcon,
             colors = colors,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions =
+                KeyboardActions(
+                    onDone = {
+                        suggestions.firstOrNull()?.let { place ->
+                            expanded = false
+                            suggestions = emptyList()
+                            onValueChange(place.name.ifBlank { place.label })
+                            onLocationSelected(LatLng(place.latitude, place.longitude))
+                        }
+                    },
+                ),
             modifier = Modifier.fillMaxWidth(),
         )
 

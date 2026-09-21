@@ -4,4 +4,5 @@ enum class SpoofMode {
     STATIC,
     DIRECTIONS,
     JOYSTICK,
+    PC_RECEIVER,
 }

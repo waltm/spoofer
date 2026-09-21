@@ -2,6 +2,7 @@ package com.spoofer.viewmodel
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -12,13 +13,21 @@ import androidx.lifecycle.viewModelScope
 import com.google.android.gms.maps.model.LatLng
 import com.spoofer.data.DirectionsRepository
 import com.spoofer.data.RouteInfo
+import com.spoofer.data.gpx.GpxParser
+import com.spoofer.data.gpx.GpxRoute
+import com.spoofer.data.gpx.GpxWriter
 import com.spoofer.service.MockLocationService
+import com.spoofer.usecase.SpeedSimulationUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.io.OutputStreamWriter
 import javax.inject.Inject
 
 @HiltViewModel
@@ -44,6 +53,9 @@ class SpoofViewModel
     private val _routeError = MutableStateFlow<String?>(null)
     val routeError: StateFlow<String?> = _routeError.asStateFlow()
 
+    private val _importedGpxRoute = MutableStateFlow<GpxRoute?>(null)
+    val importedGpxRoute: StateFlow<GpxRoute?> = _importedGpxRoute.asStateFlow()
+
     val remainingDistance: StateFlow<Double> = MockLocationService.remainingDistance
 
         fun startStaticSpoof(target: LatLng) {
@@ -56,19 +68,26 @@ class SpoofViewModel
             application.startForegroundService(intent)
         }
 
+        /** [waypoints] is an ordered list of 2+ points: origin, any stops, then a destination (which may be the origin again, for a round trip). */
         fun startDirectionsSpoof(
-            origin: LatLng,
-            destination: LatLng,
+            waypoints: List<LatLng>,
             speedMps: Float,
         ) {
             val intent =
                 Intent(application, MockLocationService::class.java).apply {
                     action = MockLocationService.ACTION_START_MOVEMENT
+                    putParcelableArrayListExtra(MockLocationService.EXTRA_WAYPOINTS, ArrayList(waypoints))
+                    putExtra(MockLocationService.EXTRA_SPEED, speedMps)
+                }
+            application.startForegroundService(intent)
+        }
+
+        fun startPcReceiver(origin: LatLng) {
+            val intent =
+                Intent(application, MockLocationService::class.java).apply {
+                    action = MockLocationService.ACTION_START_PC_RECEIVER
                     putExtra(MockLocationService.EXTRA_LATITUDE, origin.latitude)
                     putExtra(MockLocationService.EXTRA_LONGITUDE, origin.longitude)
-                    putExtra(MockLocationService.EXTRA_DEST_LATITUDE, destination.latitude)
-                    putExtra(MockLocationService.EXTRA_DEST_LONGITUDE, destination.longitude)
-                    putExtra(MockLocationService.EXTRA_SPEED, speedMps)
                 }
             application.startForegroundService(intent)
         }
@@ -81,14 +100,28 @@ class SpoofViewModel
             application.startService(intent)
         }
 
-        fun fetchRoutePreview(
-            origin: LatLng,
-            destination: LatLng,
-        ) {
+        fun pauseSpoofing() {
+            val intent =
+                Intent(application, MockLocationService::class.java).apply {
+                    action = MockLocationService.ACTION_PAUSE
+                }
+            application.startService(intent)
+        }
+
+        fun resumeSpoofing() {
+            val intent =
+                Intent(application, MockLocationService::class.java).apply {
+                    action = MockLocationService.ACTION_RESUME
+                }
+            application.startService(intent)
+        }
+
+        /** [waypoints] is an ordered list of 2+ points: origin, any stops, then a destination (which may be the origin again, for a round trip). */
+        fun fetchRoutePreview(waypoints: List<LatLng>) {
             viewModelScope.launch {
                 _isLoadingRoute.value = true
                 try {
-                    val route = directionsRepo.getRoute(origin, destination)
+                    val route = directionsRepo.getRoute(waypoints)
                     _routeInfo.value = route
                     _routePreview.value = route.polyline
                     _routeError.value = null
@@ -105,6 +138,74 @@ class SpoofViewModel
         fun clearRoutePreview() {
             _routeInfo.value = null
             _routePreview.value = emptyList()
+            _importedGpxRoute.value = null
+        }
+
+        fun startGpxRouteSpoof(
+            points: List<LatLng>,
+            speedMps: Float,
+            elevations: List<Double?>? = null,
+        ) {
+            val intent =
+                Intent(application, MockLocationService::class.java).apply {
+                    action = MockLocationService.ACTION_START_MOVEMENT_ROUTE
+                    putParcelableArrayListExtra(MockLocationService.EXTRA_ROUTE_POINTS, ArrayList(points))
+                    putExtra(MockLocationService.EXTRA_SPEED, speedMps)
+                    if (elevations != null) {
+                        // NaN is the "missing" sentinel — DoubleArray has no null elements.
+                        putExtra(
+                            MockLocationService.EXTRA_ROUTE_ELEVATIONS,
+                            elevations.map { it ?: Double.NaN }.toDoubleArray(),
+                        )
+                    }
+                }
+            application.startForegroundService(intent)
+        }
+
+        fun importGpx(uri: Uri) {
+            viewModelScope.launch {
+                try {
+                    val route =
+                        withContext(Dispatchers.IO) {
+                            application.contentResolver.openInputStream(uri)?.use { GpxParser.parse(it) }
+                                ?: throw IOException("Could not open the selected file")
+                        }
+                    val latLngPoints = route.points.map { LatLng(it.latitude, it.longitude) }
+                    val distanceMeters =
+                        latLngPoints.zipWithNext { a, b -> SpeedSimulationUseCase.distanceBetween(a, b) }.sum()
+                    _importedGpxRoute.value = route
+                    _routePreview.value = latLngPoints
+                    _routeInfo.value =
+                        RouteInfo(
+                            polyline = latLngPoints,
+                            durationSeconds = (distanceMeters / 1.4).toInt(),
+                            distanceMeters = distanceMeters.toInt(),
+                        )
+                    _routeError.value = null
+                } catch (e: Exception) {
+                    _importedGpxRoute.value = null
+                    _routeError.value = "Could not read GPX file: ${e.message}"
+                }
+            }
+        }
+
+        fun exportGpx(uri: Uri) {
+            viewModelScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        val points = _routePreview.value
+                        val name = _importedGpxRoute.value?.name ?: "Spoofer route"
+                        application.contentResolver.openOutputStream(uri)?.use { out ->
+                            OutputStreamWriter(out).use { writer ->
+                                GpxWriter.write(writer, name, points)
+                            }
+                        } ?: throw IOException("Could not open the destination file")
+                    }
+                    _routeError.value = null
+                } catch (e: Exception) {
+                    _routeError.value = "Could not export GPX file: ${e.message}"
+                }
+            }
         }
 
         fun checkMockLocationProvider() {

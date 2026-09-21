@@ -23,12 +23,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.FilterChip
@@ -48,11 +55,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.maps.model.LatLng
 import com.spoofer.data.RouteInfo
+import com.spoofer.data.gpx.GpxRoute
 import com.spoofer.model.SpeedMode
 import com.spoofer.model.SpoofMode
 import com.spoofer.model.TransportMode
 import com.spoofer.ui.component.LocationInputField
 import com.spoofer.ui.component.SpeedSlider
+import com.spoofer.viewmodel.ReturnMode
+import com.spoofer.viewmodel.WaypointStop
 import java.util.Locale
 
 @Composable
@@ -85,6 +95,20 @@ fun BottomSheetContent(
     currentHeading: Float = 0f,
     onSearchPlace: suspend (String) -> List<com.spoofer.data.PlaceSuggestion> = { emptyList() },
     onDestSelected: (LatLng) -> Unit = {},
+    importedGpxRoute: GpxRoute? = null,
+    onImportGpxClick: () -> Unit = {},
+    onExportGpxClick: () -> Unit = {},
+    onClearImportedRoute: () -> Unit = {},
+    roadSpeedLimitKmh: Float? = null,
+    waypointStops: List<WaypointStop> = emptyList(),
+    onAddWaypointStop: () -> Unit = {},
+    onWaypointStopTextChange: (Int, String) -> Unit = { _, _ -> },
+    onWaypointStopSelected: (Int, LatLng) -> Unit = { _, _ -> },
+    onRemoveWaypointStop: (Int) -> Unit = {},
+    returnMode: ReturnMode = ReturnMode.NONE,
+    onReturnModeChange: (ReturnMode) -> Unit = {},
+    pcReceiverConnected: Boolean = false,
+    pcReceiverModeEnabled: Boolean = false,
 ) {
     Column(
         modifier =
@@ -105,25 +129,27 @@ fun BottomSheetContent(
         )
         Spacer(Modifier.height(16.dp))
 
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            SegmentedButton(
-                selected = selectedMode == SpoofMode.STATIC,
-                onClick = { onModeSelected(SpoofMode.STATIC) },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-                icon = { Icon(Icons.Default.LocationOn, null, Modifier.size(SegmentedButtonDefaults.IconSize)) },
-            ) { Text("Static", style = MaterialTheme.typography.labelMedium) }
-            SegmentedButton(
-                selected = selectedMode == SpoofMode.DIRECTIONS,
-                onClick = { onModeSelected(SpoofMode.DIRECTIONS) },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                icon = { Icon(Icons.Default.DirectionsWalk, null, Modifier.size(SegmentedButtonDefaults.IconSize)) },
-            ) { Text("Directions", style = MaterialTheme.typography.labelMedium) }
-            SegmentedButton(
-                selected = selectedMode == SpoofMode.JOYSTICK,
-                onClick = { onModeSelected(SpoofMode.JOYSTICK) },
-                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                icon = { Icon(Icons.Default.Gamepad, null, Modifier.size(SegmentedButtonDefaults.IconSize)) },
-            ) { Text("Joystick", style = MaterialTheme.typography.labelMedium) }
+        if (!pcReceiverModeEnabled) {
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = selectedMode == SpoofMode.STATIC,
+                    onClick = { onModeSelected(SpoofMode.STATIC) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
+                    icon = { Icon(Icons.Default.LocationOn, null, Modifier.size(SegmentedButtonDefaults.IconSize)) },
+                ) { Text("Static", style = MaterialTheme.typography.labelMedium) }
+                SegmentedButton(
+                    selected = selectedMode == SpoofMode.DIRECTIONS,
+                    onClick = { onModeSelected(SpoofMode.DIRECTIONS) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
+                    icon = { Icon(Icons.Default.DirectionsWalk, null, Modifier.size(SegmentedButtonDefaults.IconSize)) },
+                ) { Text("Directions", style = MaterialTheme.typography.labelMedium) }
+                SegmentedButton(
+                    selected = selectedMode == SpoofMode.JOYSTICK,
+                    onClick = { onModeSelected(SpoofMode.JOYSTICK) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
+                    icon = { Icon(Icons.Default.Gamepad, null, Modifier.size(SegmentedButtonDefaults.IconSize)) },
+                ) { Text("Joystick", style = MaterialTheme.typography.labelMedium) }
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -162,6 +188,18 @@ fun BottomSheetContent(
                         isLoadingRoute = isLoadingRoute,
                         routeError = routeError,
                         isSpoofing = isSpoofing,
+                        importedGpxRoute = importedGpxRoute,
+                        onImportGpxClick = onImportGpxClick,
+                        onExportGpxClick = onExportGpxClick,
+                        onClearImportedRoute = onClearImportedRoute,
+                        roadSpeedLimitKmh = roadSpeedLimitKmh,
+                        waypointStops = waypointStops,
+                        onAddWaypointStop = onAddWaypointStop,
+                        onWaypointStopTextChange = onWaypointStopTextChange,
+                        onWaypointStopSelected = onWaypointStopSelected,
+                        onRemoveWaypointStop = onRemoveWaypointStop,
+                        returnMode = returnMode,
+                        onReturnModeChange = onReturnModeChange,
                     )
                 SpoofMode.JOYSTICK ->
                     JoystickPanel(
@@ -171,6 +209,7 @@ fun BottomSheetContent(
                         currentHeading,
                         isSpoofing,
                     )
+                SpoofMode.PC_RECEIVER -> PcReceiverPanel(isSpoofing, pcReceiverConnected)
             }
         }
 
@@ -256,6 +295,55 @@ private fun StaticModePanel(
 }
 
 @Composable
+private fun PcReceiverPanel(
+    isSpoofing: Boolean,
+    connected: Boolean,
+) {
+    androidx.compose.material3.Card(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors =
+            androidx.compose.material3.CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Usb,
+                null,
+                tint =
+                    if (connected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(
+                    when {
+                        !isSpoofing -> "Not listening"
+                        connected -> "PC connected"
+                        else -> "Waiting for PC…"
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    "adb forward tcp:${com.spoofer.network.PcReceiverServer.DEFAULT_PORT} " +
+                        "tcp:${com.spoofer.network.PcReceiverServer.DEFAULT_PORT}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun DirectionsModePanel(
     originText: String,
     destText: String,
@@ -277,8 +365,39 @@ private fun DirectionsModePanel(
     isLoadingRoute: Boolean = false,
     routeError: String? = null,
     isSpoofing: Boolean,
+    importedGpxRoute: GpxRoute? = null,
+    onImportGpxClick: () -> Unit = {},
+    onExportGpxClick: () -> Unit = {},
+    onClearImportedRoute: () -> Unit = {},
+    roadSpeedLimitKmh: Float? = null,
+    waypointStops: List<WaypointStop> = emptyList(),
+    onAddWaypointStop: () -> Unit = {},
+    onWaypointStopTextChange: (Int, String) -> Unit = { _, _ -> },
+    onWaypointStopSelected: (Int, LatLng) -> Unit = { _, _ -> },
+    onRemoveWaypointStop: (Int) -> Unit = {},
+    returnMode: ReturnMode = ReturnMode.NONE,
+    onReturnModeChange: (ReturnMode) -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth()) {
+        importedGpxRoute?.let { route ->
+            AssistChip(
+                onClick = onClearImportedRoute,
+                label = {
+                    Text(
+                        "GPX: ${route.name} (${route.points.size} pts)",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                },
+                leadingIcon = {
+                    Icon(Icons.Default.Route, null, Modifier.size(AssistChipDefaults.IconSize))
+                },
+                trailingIcon = {
+                    Icon(Icons.Default.Close, "Clear imported route", Modifier.size(AssistChipDefaults.IconSize))
+                },
+            )
+            Spacer(Modifier.height(12.dp))
+        }
+
         androidx.compose.material3.Card(
             Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.medium,
@@ -317,6 +436,41 @@ private fun DirectionsModePanel(
                     color = MaterialTheme.colorScheme.outlineVariant,
                 )
 
+                waypointStops.forEachIndexed { index, stop ->
+                    LocationInputField(
+                        value = stop.text,
+                        onValueChange = { onWaypointStopTextChange(index, it) },
+                        placeholder = "Stop ${index + 1}",
+                        onLocationSelected = { onWaypointStopSelected(index, it) },
+                        onSearch = onSearchPlace,
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.LocationOn,
+                                null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { onRemoveWaypointStop(index) }) {
+                                Icon(Icons.Default.Close, "Remove stop", Modifier.size(18.dp))
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors =
+                            androidx.compose.material3.TextFieldDefaults.colors(
+                                focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                                unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                            ),
+                    )
+                    androidx.compose.material3.HorizontalDivider(
+                        modifier = Modifier.padding(start = 52.dp, end = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                }
+
                 LocationInputField(
                     value = destText,
                     onValueChange = onDestTextChange,
@@ -346,6 +500,68 @@ private fun DirectionsModePanel(
                         ),
                 )
             }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        AssistChip(
+            onClick = onAddWaypointStop,
+            enabled = importedGpxRoute == null && waypointStops.size < MAX_WAYPOINT_STOPS,
+            label = { Text("Add Stop", style = MaterialTheme.typography.labelMedium) },
+            leadingIcon = {
+                Icon(Icons.Default.Add, null, Modifier.size(AssistChipDefaults.IconSize))
+            },
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        Text(
+            "Return to Start",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = returnMode == ReturnMode.NONE,
+                onClick = { onReturnModeChange(ReturnMode.NONE) },
+                enabled = importedGpxRoute == null,
+                label = { Text("None", style = MaterialTheme.typography.labelMedium) },
+            )
+            FilterChip(
+                selected = returnMode == ReturnMode.LOOP,
+                onClick = { onReturnModeChange(ReturnMode.LOOP) },
+                enabled = importedGpxRoute == null,
+                label = { Text("Loop", style = MaterialTheme.typography.labelMedium) },
+            )
+            FilterChip(
+                selected = returnMode == ReturnMode.BACKTRACK,
+                onClick = { onReturnModeChange(ReturnMode.BACKTRACK) },
+                // With no stops, retracing the route back is identical to looping
+                // straight back — only offer it once there's something to retrace.
+                enabled = importedGpxRoute == null && waypointStops.isNotEmpty(),
+                label = { Text("Backtrack", style = MaterialTheme.typography.labelMedium) },
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AssistChip(
+                onClick = onImportGpxClick,
+                label = { Text("Import GPX", style = MaterialTheme.typography.labelMedium) },
+                leadingIcon = {
+                    Icon(Icons.Default.FileUpload, null, Modifier.size(AssistChipDefaults.IconSize))
+                },
+            )
+            AssistChip(
+                onClick = onExportGpxClick,
+                enabled = routeInfo != null,
+                label = { Text("Export GPX", style = MaterialTheme.typography.labelMedium) },
+                leadingIcon = {
+                    Icon(Icons.Default.FileDownload, null, Modifier.size(AssistChipDefaults.IconSize))
+                },
+            )
         }
 
         Spacer(Modifier.height(16.dp))
@@ -532,6 +748,24 @@ private fun DirectionsModePanel(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
+
+            roadSpeedLimitKmh?.let { limit ->
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Speed,
+                        null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Capped to road speed: %.0f km/h".format(limit),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
@@ -571,6 +805,8 @@ private fun JoystickPanel(
         }
     }
 }
+
+private const val MAX_WAYPOINT_STOPS = 8
 
 private fun formatDms(
     lat: Double,

@@ -23,6 +23,8 @@ class PreferencesDataStore
         val jitterIntensity: Flow<Float> = dataStore.data.map { it[KEY_JITTER_INTENSITY] ?: 2f }
         val defaultTransportMode: Flow<String> = dataStore.data.map { it[KEY_TRANSPORT_MODE] ?: "CYCLE" }
         val darkTheme: Flow<Boolean> = dataStore.data.map { it[KEY_DARK_THEME] ?: true }
+        val elevationEnabled: Flow<Boolean> = dataStore.data.map { it[KEY_ELEVATION_ENABLED] ?: false }
+        val pcReceiverModeEnabled: Flow<Boolean> = dataStore.data.map { it[KEY_PC_RECEIVER_MODE] ?: false }
 
         suspend fun setGpsUpdateInterval(ms: Long) {
             dataStore.edit { it[KEY_GPS_INTERVAL] = ms }
@@ -44,11 +46,21 @@ class PreferencesDataStore
             dataStore.edit { it[KEY_DARK_THEME] = enabled }
         }
 
+        suspend fun setElevationEnabled(enabled: Boolean) {
+            dataStore.edit { it[KEY_ELEVATION_ENABLED] = enabled }
+        }
+
+        suspend fun setPcReceiverModeEnabled(enabled: Boolean) {
+            dataStore.edit { it[KEY_PC_RECEIVER_MODE] = enabled }
+        }
+
         companion object {
             private val KEY_GPS_INTERVAL = longPreferencesKey("gps_interval")
             private val KEY_JITTER_ENABLED = booleanPreferencesKey("jitter_enabled")
             private val KEY_JITTER_INTENSITY = floatPreferencesKey("jitter_intensity")
             private val KEY_TRANSPORT_MODE = stringPreferencesKey("transport_mode")
             private val KEY_DARK_THEME = booleanPreferencesKey("dark_theme")
+            private val KEY_ELEVATION_ENABLED = booleanPreferencesKey("elevation_enabled")
+            private val KEY_PC_RECEIVER_MODE = booleanPreferencesKey("pc_receiver_mode_enabled")
         }
     }
