@@ -39,5 +39,16 @@
             android:name=".service.MockLocationService"
             android:foregroundServiceType="location"
             android:exported="false" />
+        <receiver
+            android:name=".service.PcReceiverService"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.spoofer.action.PREF_CHANGED" />
+                <action android:name="com.spoofer.action.START_PC_RECEIVER" />
+                <action android:name="com.spoofer.action.STOP" />
+            </intent-filter>
+        </receiver>
+
     </application>
 </manifest>

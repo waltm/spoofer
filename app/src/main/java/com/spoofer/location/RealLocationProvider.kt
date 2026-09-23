@@ -1,5 +1,6 @@
 package com.spoofer.location
 
+import android.annotation.SuppressLint
 import android.location.Location
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationRequest
@@ -20,13 +21,19 @@ class RealLocationProvider
     constructor(
         private val fusedClient: FusedLocationProviderClient,
     ) {
+        @SuppressLint("MissingPermission")
         suspend fun getLastLocation(): Location? =
             suspendCancellableCoroutine { cont ->
-                fusedClient.lastLocation
-                    .addOnSuccessListener { location -> cont.resume(location) }
-                    .addOnFailureListener { cont.resume(null) }
+                try {
+                    fusedClient.lastLocation
+                        .addOnSuccessListener { location -> cont.resume(location) }
+                        .addOnFailureListener { cont.resume(null) }
+                } catch (_: SecurityException) {
+                    cont.resume(null)
+                }
             }
 
+        @SuppressLint("MissingPermission")
         fun getLocationUpdates(intervalMs: Long = 1000): Flow<Location> =
             callbackFlow {
                 val request =
@@ -41,7 +48,11 @@ class RealLocationProvider
                         }
                     }
 
-                fusedClient.requestLocationUpdates(request, callback, null)
+                try {
+                    fusedClient.requestLocationUpdates(request, callback, null)
+                } catch (e: SecurityException) {
+                    close(e)
+                }
                 awaitClose { fusedClient.removeLocationUpdates(callback) }
             }
 
