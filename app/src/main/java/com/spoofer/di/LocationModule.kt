@@ -4,6 +4,7 @@ import android.content.Context
 import android.location.LocationManager
 import com.spoofer.location.JsonPatchedClient
 import com.spoofer.location.MockLocationProvider
+import com.spoofer.location.PatchedClient
 import com.spoofer.location.mode.LocationMode
 import com.spoofer.location.mode.LocationModeSwitcher
 import dagger.Module
@@ -23,8 +24,9 @@ object LocationModule {
         @ApplicationContext context: Context,
         mockLocationProvider: MockLocationProvider,
         jsonPatchedClient: JsonPatchedClient,
+        patchedClient: PatchedClient,
     ): LocationModeSwitcher {
-        return LocationModeSwitcher(context, mockLocationProvider, jsonPatchedClient)
+        return LocationModeSwitcher(context, mockLocationProvider, jsonPatchedClient, patchedClient)
     }
 
     @Provides

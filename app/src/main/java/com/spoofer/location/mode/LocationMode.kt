@@ -11,6 +11,9 @@ sealed class LocationMode {
         val outputFormat: OutputFormat = OutputFormat.JSON,
     ) : LocationMode()
 
+    /** Inject through both the standard mock-location provider and the patched client. */
+    data object Both : LocationMode()
+
     sealed class OutputFormat {
         data object JSON : OutputFormat()
         data object Raw : OutputFormat()
@@ -19,14 +22,14 @@ sealed class LocationMode {
     companion object {
         const val DEBUG = "debug"
         const val PATCHED = "patched"
+        const val BOTH = "both"
 
         fun fromString(name: String): LocationMode? =
             when (name.lowercase()) {
-                "debug" -> DebugMode()
-                "patched" -> PatchedMode()
+                DEBUG -> DebugMode()
+                PATCHED -> PatchedMode()
+                BOTH -> Both
                 else -> null
             }
     }
 }
-
-

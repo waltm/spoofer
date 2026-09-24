@@ -31,6 +31,18 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.random.Random
 
+/**
+ * A location received over the PC receiver socket, alongside the monotonic clock
+ * reading at which it arrived. The timestamp is what makes the readout useful:
+ * a PC that has stopped sending looks identical to one resending the same
+ * coordinate, unless you can see how long ago the last message landed.
+ */
+data class PcPosition(
+    val lat: Double,
+    val lng: Double,
+    val receivedAtElapsedMs: Long,
+)
+
 @AndroidEntryPoint
 class MockLocationService : Service() {
     @Inject lateinit var mockLocationProvider: MockLocationProvider
@@ -44,6 +56,8 @@ class MockLocationService : Service() {
     @Inject lateinit var spoofLocationSource: com.spoofer.location.SpoofLocationSource
 
     @Inject lateinit var preferencesDataStore: PreferencesDataStore
+
+    @Inject lateinit var locationModeSwitcher: com.spoofer.location.mode.LocationModeSwitcher
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var tickerJob: Job? = null
@@ -91,6 +105,13 @@ class MockLocationService : Service() {
         }
         scope.launch {
             preferencesDataStore.elevationEnabled.collect { elevationEnabledSetting = it }
+        }
+        scope.launch {
+            preferencesDataStore.locationMode.collect { name ->
+                com.spoofer.location.mode.LocationMode.fromString(name)?.let {
+                    locationModeSwitcher.setMode(it)
+                }
+            }
         }
     }
 
@@ -202,8 +223,17 @@ class MockLocationService : Service() {
                 onLocation = { lat, lng ->
                     staticLat = lat
                     staticLng = lng
+                    _pcPosition.value =
+                        PcPosition(lat, lng, android.os.SystemClock.elapsedRealtime())
                 },
-                onConnectionStateChanged = { connected -> _pcReceiverConnected.value = connected },
+                onConnectionStateChanged = { connected ->
+                    _pcReceiverConnected.value = connected
+                    // A dropped link means the last position is no longer live;
+                    // clearing it keeps the readout from showing stale data that
+                    // would look identical to fresh data on screen.
+                    if (!connected) _pcPosition.value = null
+                },
+                onPinChanged = { pin -> _pcReceiverPin.value = pin },
             ).also { it.start() }
     }
 
@@ -253,7 +283,7 @@ class MockLocationService : Service() {
                                 jitterEnabled = jitterEnabledSetting,
                                 intensityMeters = jitterIntensitySetting,
                             )
-                        mockLocationProvider.setMockLocation(
+                        locationModeSwitcher.setMockLocation(
                             jittered.latitude, jittered.longitude,
                             altitude = emittedAltitude,
                             speed = 0f,
@@ -273,7 +303,7 @@ class MockLocationService : Service() {
                                     jitterEnabled = jitterEnabledSetting,
                                     intensityMeters = jitterIntensitySetting,
                                 )
-                            mockLocationProvider.setMockLocation(jittered.latitude, jittered.longitude)
+                            locationModeSwitcher.setMockLocation(jittered.latitude, jittered.longitude)
                             spoofLocationSource.pushSpoofedLocation(jittered.latitude, jittered.longitude)
                             _currentLocation.value = jittered
                         }
@@ -283,9 +313,9 @@ class MockLocationService : Service() {
                             val deltaLat = joyMagnitude * joyMetersPerTick * Math.cos(radians) * METERS_PER_DEGREE_LAT
                             val deltaLng =
                                 joyMagnitude * joyMetersPerTick * Math.sin(radians) *
-                                    Math.cos(
-                                        Math.toRadians(staticLat),
-                                    ) * METERS_PER_DEGREE_LAT
+                                        Math.cos(
+                                            Math.toRadians(staticLat),
+                                        ) * METERS_PER_DEGREE_LAT
                             staticLat += deltaLat
                             staticLng += deltaLng
                             val distanceThisTick = joyMagnitude * joyMetersPerTick
@@ -297,7 +327,7 @@ class MockLocationService : Service() {
                                     jitterEnabled = jitterEnabledSetting,
                                     intensityMeters = jitterIntensitySetting,
                                 )
-                            mockLocationProvider.setMockLocation(
+                            locationModeSwitcher.setMockLocation(
                                 jittered.latitude, jittered.longitude,
                                 bearing = joyAngle,
                                 speed = joySpeed,
@@ -316,7 +346,7 @@ class MockLocationService : Service() {
                                     jitterEnabled = jitterEnabledSetting,
                                     intensityMeters = jitterIntensitySetting,
                                 )
-                            mockLocationProvider.setMockLocation(jittered.latitude, jittered.longitude)
+                            locationModeSwitcher.setMockLocation(jittered.latitude, jittered.longitude)
                             spoofLocationSource.pushSpoofedLocation(jittered.latitude, jittered.longitude)
                             _currentLocation.value = jittered
                         }
@@ -350,7 +380,7 @@ class MockLocationService : Service() {
                                     val delta = (result.altitude - emittedAltitude).coerceIn(-maxStep, maxStep)
                                     emittedAltitude += delta
                                 }
-                                mockLocationProvider.setMockLocation(
+                                locationModeSwitcher.setMockLocation(
                                     jittered.latitude, jittered.longitude,
                                     altitude = emittedAltitude,
                                     bearing = result.bearing,
@@ -384,6 +414,8 @@ class MockLocationService : Service() {
         pcReceiverServer?.stop()
         pcReceiverServer = null
         _pcReceiverConnected.value = false
+        _pcPosition.value = null
+        _pcReceiverPin.value = null
         _isActive.value = false
         _currentMode.value = null
         _currentLocation.value = null
@@ -406,6 +438,8 @@ class MockLocationService : Service() {
         scope.cancel()
         pcReceiverServer?.stop()
         pcReceiverServer = null
+        _pcPosition.value = null
+        _pcReceiverPin.value = null
         mockLocationProvider.removeTestProvider()
         super.onDestroy()
     }
@@ -608,5 +642,13 @@ class MockLocationService : Service() {
         val pcReceiverConnected: StateFlow<Boolean>
             get() = _pcReceiverConnected.asStateFlow()
         private val _pcReceiverConnected = MutableStateFlow(false)
+
+        val pcPosition: StateFlow<PcPosition?>
+            get() = _pcPosition.asStateFlow()
+        private val _pcPosition = MutableStateFlow<PcPosition?>(null)
+
+        val pcReceiverPin: StateFlow<String?>
+            get() = _pcReceiverPin.asStateFlow()
+        private val _pcReceiverPin = MutableStateFlow<String?>(null)
     }
 }

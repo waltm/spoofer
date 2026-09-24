@@ -1,5 +1,7 @@
 package com.spoofer.ui.screen
 
+import android.content.Context
+import android.net.ConnectivityManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -49,9 +51,15 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.maps.model.LatLng
 import com.spoofer.data.RouteInfo
@@ -59,10 +67,13 @@ import com.spoofer.data.gpx.GpxRoute
 import com.spoofer.model.SpeedMode
 import com.spoofer.model.SpoofMode
 import com.spoofer.model.TransportMode
+import com.spoofer.service.PcPosition
 import com.spoofer.ui.component.LocationInputField
 import com.spoofer.ui.component.SpeedSlider
 import com.spoofer.viewmodel.ReturnMode
 import com.spoofer.viewmodel.WaypointStop
+import kotlinx.coroutines.delay
+import java.net.Inet4Address
 import java.util.Locale
 
 @Composable
@@ -109,6 +120,8 @@ fun BottomSheetContent(
     onReturnModeChange: (ReturnMode) -> Unit = {},
     pcReceiverConnected: Boolean = false,
     pcReceiverModeEnabled: Boolean = false,
+    pcPosition: PcPosition? = null,
+    pcReceiverPin: String? = null,
 ) {
     Column(
         modifier =
@@ -209,7 +222,13 @@ fun BottomSheetContent(
                         currentHeading,
                         isSpoofing,
                     )
-                SpoofMode.PC_RECEIVER -> PcReceiverPanel(isSpoofing, pcReceiverConnected)
+                SpoofMode.PC_RECEIVER ->
+                    PcReceiverPanel(
+                        isSpoofing = isSpoofing,
+                        connected = pcReceiverConnected,
+                        position = pcPosition,
+                        pin = pcReceiverPin,
+                    )
             }
         }
 
@@ -298,6 +317,8 @@ private fun StaticModePanel(
 private fun PcReceiverPanel(
     isSpoofing: Boolean,
     connected: Boolean,
+    position: PcPosition?,
+    pin: String?,
 ) {
     androidx.compose.material3.Card(
         Modifier.fillMaxWidth(),
@@ -309,7 +330,7 @@ private fun PcReceiverPanel(
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Top,
         ) {
             Icon(
                 Icons.Default.Usb,
@@ -332,15 +353,77 @@ private fun PcReceiverPanel(
                     },
                     style = MaterialTheme.typography.bodyLarge,
                 )
+
+                if (connected && position != null) {
+                    Spacer(Modifier.height(8.dp))
+                    PositionReadout(position)
+                }
+
+                if (pin != null) {
+                    Spacer(Modifier.height(8.dp))
+                    val lanIp = getLanIpv4(LocalContext.current)
+                    Text(
+                        "WiFi: ${lanIp ?: "no LAN"}:${com.spoofer.network.PcReceiverServer.DEFAULT_PORT}" +
+                                " · PIN: $pin",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
                 Text(
                     "adb forward tcp:${com.spoofer.network.PcReceiverServer.DEFAULT_PORT} " +
-                        "tcp:${com.spoofer.network.PcReceiverServer.DEFAULT_PORT}",
+                            "tcp:${com.spoofer.network.PcReceiverServer.DEFAULT_PORT}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun PositionReadout(position: PcPosition) {
+    // A ticker so "Updated X.Xs ago" keeps counting even when the PC has gone
+    // quiet. LaunchedEffect restarts on every new position, so on a live link
+    // `now` tracks the freshest render and the delay(500) is effectively unused;
+    // on a stalled link it fires and the age visibly climbs — which is the whole
+    // reason this line exists rather than just the coordinates.
+    var now by remember { mutableLongStateOf(android.os.SystemClock.elapsedRealtime()) }
+    LaunchedEffect(position.receivedAtElapsedMs) {
+        while (true) {
+            now = android.os.SystemClock.elapsedRealtime()
+            delay(500)
+        }
+    }
+    val ageSeconds = (now - position.receivedAtElapsedMs).coerceAtLeast(0L) / 1000.0
+
+    Column {
+        Text(
+            "Lat: %.6f   Lng: %.6f".format(position.lat, position.lng),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            "Updated %.1fs ago".format(ageSeconds),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Best-effort IPv4 address of the phone on the active network, for display
+ * next to the PIN. Recomputed on each recomposition (cheap; called at most
+ * a few times a second) rather than remembered, so it picks up a WiFi change
+ * without needing to be wired to a connectivity callback.
+ */
+private fun getLanIpv4(context: Context): String? {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
+    val network = cm.activeNetwork ?: return null
+    val lp = cm.getLinkProperties(network) ?: return null
+    return lp.linkAddresses
+        .firstOrNull { it.address is Inet4Address && !it.address.isLoopbackAddress }
+        ?.address?.hostAddress
 }
 
 @Composable

@@ -43,6 +43,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.spoofer.model.TransportMode
 import com.spoofer.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.filled.Tune
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +59,7 @@ fun SettingsScreen(
     val elevationEnabled by viewModel.elevationEnabled.collectAsState(initial = false)
     val pcReceiverModeEnabled by viewModel.pcReceiverModeEnabled.collectAsState(initial = false)
     val scope = rememberCoroutineScope()
+    val locationMode by viewModel.locationMode.collectAsState(initial = "debug")
 
     Scaffold(
         topBar = {
@@ -211,6 +213,32 @@ fun SettingsScreen(
                 },
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
             )
+            ListItem(
+                headlineContent = { Text("Location Mode") },
+                supportingContent = { Text("Which injection path(s) to use") },
+                leadingContent = { Icon(Icons.Default.Tune, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 72.dp, end = 24.dp, bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf(
+                    "debug" to "Debug",
+                    "patched" to "Patched",
+                    "both" to "Both",
+                ).forEach { (value, label) ->
+                    FilterChip(
+                        selected = locationMode == value,
+                        onClick = { scope.launch { viewModel.setLocationMode(value) } },
+                        label = { Text(label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
+                    )
+                }
+            }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             // Movement Defaults
@@ -265,7 +293,7 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    "Developed by @r69shabh",
+                    "Forked from Spoofer by @r69shabh",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )

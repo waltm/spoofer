@@ -82,6 +82,8 @@ class MapViewModel
         val currentHeading = MockLocationService.currentHeading
         val currentRoadSpeedLimitKmh = MockLocationService.currentRoadSpeedLimitKmh
         val pcReceiverConnected = MockLocationService.pcReceiverConnected
+        val pcPosition = MockLocationService.pcPosition
+        val pcReceiverPin = MockLocationService.pcReceiverPin
 
         fun setTarget(latLng: LatLng) {
             _targetLatLng.value = latLng

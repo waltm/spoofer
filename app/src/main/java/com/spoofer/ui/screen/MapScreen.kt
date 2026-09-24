@@ -116,6 +116,8 @@ fun MapScreen(
     val returnMode by mapViewModel.returnMode.collectAsState()
     val pcReceiverConnected by mapViewModel.pcReceiverConnected.collectAsState()
     val pcReceiverModeEnabled by mapViewModel.pcReceiverModeEnabled.collectAsState()
+    val pcPosition by mapViewModel.pcPosition.collectAsState()
+    val pcReceiverPin by mapViewModel.pcReceiverPin.collectAsState()
 
     val routeInfo by spoofViewModel.routeInfo.collectAsState()
     val routePreview by spoofViewModel.routePreview.collectAsState()
@@ -356,6 +358,8 @@ fun MapScreen(
                 onReturnModeChange = { mapViewModel.setReturnMode(it) },
                 pcReceiverConnected = pcReceiverConnected,
                 pcReceiverModeEnabled = pcReceiverModeEnabled,
+                pcPosition = pcPosition,
+                pcReceiverPin = pcReceiverPin,
             )
         },
     ) { innerPadding ->

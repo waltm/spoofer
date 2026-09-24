@@ -4,31 +4,37 @@ import android.util.Log
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import kotlin.random.Random
 
 /**
  * Listens for newline-delimited location updates from a PC companion, reusing the wire
  * format observed from a commercial spoofer's own PC<->device protocol:
  * {"Action":"SendPosition","data":{"Lat":"<decimal string>","Lng":"<decimal string>","Type":"<string>"}}
  *
- * Bound to loopback only — reachable via `adb forward tcp:<port> tcp:<port>` over USB,
- * never exposed on the phone's own network interface. A real WiFi listener would need
- * a shared-token handshake before accepting updates; this prototype has none.
+ * Bound to all interfaces on [port]. Connections arriving via `adb forward` (loopback)
+ * are trusted with no handshake, exactly as before. Connections from the LAN must send
+ * {"Action":"Auth","data":{"Token":"<pin>"}} as their first line before any SendPosition
+ * is accepted; the PIN is regenerated every time the server starts and is surfaced to
+ * the UI via [onPinChanged].
  */
 class PcReceiverServer(
     private val port: Int = DEFAULT_PORT,
     private val onLocation: (lat: Double, lng: Double) -> Unit,
     private val onConnectionStateChanged: (connected: Boolean) -> Unit,
+    private val onPinChanged: (String) -> Unit = {},
 ) {
     @Volatile private var running = false
+    @Volatile private var authPin: String = ""
     private var serverSocket: ServerSocket? = null
     private var thread: Thread? = null
 
     fun start() {
         if (running) return
         running = true
+        authPin = Random.nextInt(100000, 1000000).toString()
+        onPinChanged(authPin)
         thread = Thread(::runServer, "PcReceiverServer").apply { isDaemon = true }
         thread?.start()
     }
@@ -44,7 +50,7 @@ class PcReceiverServer(
 
     private fun runServer() {
         try {
-            val socket = ServerSocket(port, 1, InetAddress.getByName("127.0.0.1"))
+            val socket = ServerSocket(port)
             serverSocket = socket
             while (running) {
                 val client = runCatching { socket.accept() }.getOrNull() ?: break
@@ -57,10 +63,19 @@ class PcReceiverServer(
 
     private fun handleClient(client: Socket) {
         onConnectionStateChanged(true)
+        var authenticated = client.inetAddress.isLoopbackAddress
         try {
             val reader = BufferedReader(InputStreamReader(client.getInputStream()))
             while (running) {
                 val line = reader.readLine() ?: break
+                if (!authenticated) {
+                    if (!tryAuth(line)) {
+                        Log.w(TAG, "Auth failed from ${client.inetAddress}")
+                        break
+                    }
+                    authenticated = true
+                    continue
+                }
                 parseAndDispatch(line)
             }
         } catch (e: Exception) {
@@ -70,6 +85,12 @@ class PcReceiverServer(
             onConnectionStateChanged(false)
         }
     }
+
+    private fun tryAuth(line: String): Boolean = runCatching {
+        val json = JSONObject(line.trim())
+        json.optString("Action") == "Auth" &&
+                json.optJSONObject("data")?.optString("Token") == authPin
+    }.getOrDefault(false)
 
     private fun parseAndDispatch(line: String) {
         val trimmed = line.trim()
